@@ -4,9 +4,12 @@
 
 /**
  * Discrete zoom levels available in the editor.
- * Each level represents a pixel-multiplier (1x through 32x).
+ *
+ * The sub-1x levels let large sprite sheets fit inside the viewport on
+ * import. Levels at 1x and above remain integer pixel multipliers, so the
+ * drawing tools and grid keep their pixel-perfect behaviour when zoomed in.
  */
-export const ZOOM_LEVELS = [1, 2, 4, 6, 8, 12, 16, 24, 32] as const;
+export const ZOOM_LEVELS = [0.0625, 0.125, 0.25, 0.5, 1, 2, 4, 6, 8, 12, 16, 24, 32] as const;
 
 /**
  * Convert screen (mouse / pointer) coordinates to pixel coordinates on the

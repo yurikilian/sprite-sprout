@@ -66,9 +66,24 @@
         : detectGridSize(imageData.data, imageData.width, imageData.height).gridSize;
     editorState.bumpVersion();
 
-    // Center the imported image in the viewport.
-    const vw = editorState.viewportW;
-    const vh = editorState.viewportH;
+    // Center the imported image in the viewport. The ResizeObserver may not
+    // have delivered its first measurement while the drop zone is still
+    // mounted, so read the container as a fallback instead of leaving a
+    // large sheet at the 1x zoom default.
+    let vw = editorState.viewportW;
+    let vh = editorState.viewportH;
+    if (vw <= 0 || vh <= 0) {
+      const viewport = document.querySelector<HTMLElement>(
+        '[role="application"][aria-label="Pixel art canvas"]',
+      );
+      if (viewport) {
+        const rect = viewport.getBoundingClientRect();
+        vw = rect.width;
+        vh = rect.height;
+        editorState.viewportW = vw;
+        editorState.viewportH = vh;
+      }
+    }
     if (vw > 0 && vh > 0) {
       const z = calculateFitZoom(imageData.width, imageData.height, vw, vh);
       editorState.zoom = z;
