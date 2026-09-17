@@ -355,12 +355,12 @@
 
   .lock-btn:hover {
     background: var(--accent);
-    color: #111;
+    color: var(--accent-ink);
   }
 
   .lock-btn.locked {
     background: var(--accent);
-    color: #111;
+    color: var(--accent-ink);
     border-color: var(--accent);
   }
 
@@ -416,7 +416,7 @@
 
   .action-btn:hover {
     background: var(--accent);
-    color: #111;
+    color: var(--accent-ink);
   }
 
   .action-btn.full-width {

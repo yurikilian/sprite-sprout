@@ -121,7 +121,7 @@
 
   .tool-btn.active {
     background: var(--accent);
-    color: #111;
+    color: var(--accent-ink);
     border-color: var(--accent);
   }
 
@@ -130,7 +130,7 @@
   }
 
   .clear-btn:hover {
-    color: var(--error-color, #ff5555);
+    color: var(--danger);
   }
 
   .help-btn {

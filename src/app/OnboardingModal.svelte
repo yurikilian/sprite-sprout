@@ -24,9 +24,9 @@
 
 {#if show}
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-  <div class="backdrop" onclick={handleBackdropClick}>
+  <div class="backdrop" role="presentation" onclick={handleBackdropClick}>
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <div class="card" onclick={handleCardClick}>
+    <div class="card" role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="onboarding-title" onclick={handleCardClick}>
       <button class="close-btn" onclick={onclose} aria-label="Close">&times;</button>
 
       <div class="tabs">
@@ -49,7 +49,7 @@
       <div class="tab-content">
         {#if activeTab === 'welcome'}
           <div class="welcome">
-            <h1 class="hero">Sprite Sprout</h1>
+            <h1 id="onboarding-title" class="hero">Sprite Sprout</h1>
             <p class="tagline">Clean up AI-generated pixel art in seconds</p>
             <p class="problem">
               AI image generators produce pixel art with anti-aliasing artifacts,
@@ -201,10 +201,7 @@
     font-size: 2rem;
     font-weight: 700;
     margin: 0 0 8px;
-    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-    background-clip: text;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--accent);
   }
 
   .tagline {
@@ -264,7 +261,7 @@
   .cta {
     padding: 10px 32px;
     background: var(--accent);
-    color: var(--bg-primary);
+    color: var(--accent-ink);
     border: none;
     border-radius: 6px;
     font-size: 0.95rem;

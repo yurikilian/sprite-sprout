@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+- Go 1.27.1 image pipeline shared by the macOS desktop app and the headless `sprout` CLI
+- Versioned JSON recipes for repeatable cleanup and batch export
+- Blue and white Tailwind CSS desktop theme while preserving the Svelte editor surface
+- Native macOS image/recipe dialogs, Finder drops, and stale-operation protection
+
 ## [0.4.0] - 2026-02-15
 
 - OKLab + Refine quantization method — k-means refinement in OKLab perceptual color space for better palette quality

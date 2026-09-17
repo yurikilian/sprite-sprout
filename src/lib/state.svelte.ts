@@ -110,6 +110,8 @@ class EditorStore {
   showOnboarding: boolean = $state(false);
   beforeAfterMode: BeforeAfterMode = $state('split');
   splitPosition: number = $state(0.5); // 0..1, fraction of canvas width
+  // Nearest-neighbour export scale is shared with versioned recipes.
+  exportScale: number = $state(1);
 
   // Manual edits tracking — true after drawing tools modify pixels,
   // cleared when auto-clean or grid snap replaces the canvas from source.
@@ -189,6 +191,7 @@ class EditorStore {
     this.showGrid = true;
     this.showBeforeAfter = false;
     this.splitPosition = 0.5;
+    this.exportScale = 1;
     this.hasManualEdits = false;
     this.history = new HistoryManager();
   }

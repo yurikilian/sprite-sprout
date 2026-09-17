@@ -8,7 +8,12 @@ export const changelog: ChangelogEntry[] = [
   {
     version: 'unreleased',
     date: '',
-    items: [],
+    items: [
+      'Go image pipeline shared by the macOS desktop app and headless sprout CLI',
+      'Versioned JSON recipes for repeatable cleanup and batch export',
+      'Blue and white Tailwind CSS theme while preserving the Svelte editor surface',
+      'Native macOS dialogs, Finder drops, and stale-operation protection',
+    ],
   },
   {
     version: '0.4.0',

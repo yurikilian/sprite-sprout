@@ -6,10 +6,15 @@
     copyToClipboard,
     downloadBlob,
   } from '../lib/engine/io/export';
+  import {
+    isWailsAvailable,
+    savePNGWithWails,
+    scaleWithWails,
+  } from '../lib/wails';
 
   const SCALE_OPTIONS = [1, 2, 4, 8, 16] as const;
 
-  let selectedScale: number = $state(1);
+  let selectedScale: number = $state(editorState.exportScale);
   let copyFeedback: boolean = $state(false);
   let exporting: boolean = $state(false);
 
@@ -21,6 +26,10 @@
   );
 
   let hasCanvas: boolean = $derived(editorState.canvas !== null);
+
+  $effect(() => {
+    selectedScale = editorState.exportScale;
+  });
 
   async function handleCopy(): Promise<void> {
     const canvas = editorState.canvas;
@@ -45,6 +54,20 @@
 
     try {
       exporting = true;
+      if (isWailsAvailable()) {
+        try {
+          await savePNGWithWails(
+            canvas.data,
+            canvas.width,
+            canvas.height,
+            `sprite-sprout-${canvas.width}x${canvas.height}.png`,
+          );
+          return;
+        } catch {
+          // Fall back to the browser download if the native chooser is not
+          // ready yet (for example while a Wails window is starting).
+        }
+      }
       const blob = await exportPNG(canvas.data, canvas.width, canvas.height);
       downloadBlob(blob, `sprite-sprout-${canvas.width}x${canvas.height}.png`);
     } finally {
@@ -58,6 +81,25 @@
 
     try {
       exporting = true;
+      if (isWailsAvailable()) {
+        try {
+          const scaled = await scaleWithWails(
+            canvas.data,
+            canvas.width,
+            canvas.height,
+            selectedScale,
+          );
+          await savePNGWithWails(
+            scaled.data,
+            scaled.width,
+            scaled.height,
+            `sprite-sprout-${scaled.width}x${scaled.height}.png`,
+          );
+          return;
+        } catch {
+          // Keep the browser path as a resilient fallback.
+        }
+      }
       const blob = await exportScaledPNG(
         canvas.data,
         canvas.width,
@@ -116,7 +158,10 @@
           <button
             class="scale-btn"
             class:active={selectedScale === scale}
-            onclick={() => (selectedScale = scale)}
+            onclick={() => {
+              selectedScale = scale;
+              editorState.exportScale = scale;
+            }}
           >
             {scale}x
           </button>
@@ -196,7 +241,7 @@
 
   .action-btn:hover:not(:disabled) {
     background: var(--accent);
-    color: #111;
+    color: var(--accent-ink);
   }
 
   .action-btn:disabled {
@@ -228,12 +273,12 @@
 
   .scale-btn:hover {
     background: var(--accent);
-    color: #111;
+    color: var(--accent-ink);
   }
 
   .scale-btn.active {
     background: var(--accent);
-    color: #111;
+    color: var(--accent-ink);
     border-color: var(--accent);
   }
 

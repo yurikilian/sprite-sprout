@@ -7,10 +7,11 @@
 
 ## Project Overview
 
-**Sprite Sprout** — a web-based pixel art editor that cleans up AI-generated pixel art.
+**Sprite Sprout** — a pixel art editor that cleans up AI-generated pixel art,
+with a shared Go pipeline, macOS Wails shell, and headless `sprout` CLI.
 Core loop: drag image → auto-detect grid → one-click cleanup → refine → export.
 
-Tech: TypeScript, Svelte 5 (Runes), Canvas 2D, Vite.
+Tech: Go 1.27.1, TypeScript, Svelte 5 (Runes), Canvas 2D, Vite, Wails 2.
 
 ---
 
@@ -63,7 +64,7 @@ Complex work gets a plan doc with progress tracking and decision logs.
 ```
 src/
   app/              # Svelte 5 UI components
-  engine/           # Pure TS, no framework deps
+  engine/           # Existing TS fallback/interactive helpers
     canvas/         # Renderer, zoom, grid overlay, tools
     color/          # Quantization (octree, median-cut, k-means refine), palette, distance
     grid/           # Grid detection + snap
@@ -72,7 +73,10 @@ src/
     animation/      # Timeline, GIF encoding
     io/             # PNG, sprite sheet, project file I/O
     history/        # Command-pattern undo/redo
-    batch/          # Web Worker for batch processing
+
+internal/sprite/    # Go pipeline: decode, analyse, clean, quantize, export
+cmd/sprout/         # Headless CLI
+desktop/            # Wails macOS host and bindings
 ```
 
 **Boundary rule**: `engine/` functions accept and return `Uint8ClampedArray`. No Svelte, no DOM.

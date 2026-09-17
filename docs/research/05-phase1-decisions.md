@@ -121,3 +121,20 @@
 | Vitest over Jest | Shares Vite config | Zero setup, native ESM/TS |
 | Pointer events over mouse events | `onpointerdown` etc. | Touch-compatible, pointer capture API |
 | No external state library | Pure Svelte 5 reactivity | Editor state is simple enough; no need for Redux-like complexity |
+
+## Go desktop and CLI migration
+
+- **Shared Go package** under `internal/sprite` owns decode, grid detection,
+  snap, palette reduction, nearest-neighbour scaling, and atomic PNG output.
+  The Wails bridge and `sprout` call the same functions so a recipe produces
+  the same pixels in the desktop app and headless batch jobs.
+- **Optional Wails adapter**: browser builds keep the existing TypeScript
+  pipeline, while the desktop build discovers `window.go.main.App` lazily.
+  Native responses carry base64 RGBA buffers and include a generation/version
+  check before mutating Svelte state.
+- **Versioned recipes** contain only `version`, `grid`, `colors`, `method`,
+  and `scale`. The editor can import/export them; manual drawing and history
+  remain local state.
+- **Offline desktop assets**: Material Symbols is bundled through Fontsource,
+  demo images are embedded with the Wails asset filesystem, and
+  `desktop/build.sh` produces a signed-ad-hoc `darwin/universal` bundle.

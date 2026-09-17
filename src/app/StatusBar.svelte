@@ -100,7 +100,7 @@
 
   .ba-btn.active {
     background: var(--accent);
-    color: #111;
+    color: var(--accent-ink);
     border-color: var(--accent);
   }
 

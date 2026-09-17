@@ -1,0 +1,13 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "sprite-sprout",
+  "outputfilename": "Sprite Sprout",
+  "frontend:dir": "..",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build:wails",
+  "frontend:dev:watcher": "npm run dev -- --host 127.0.0.1",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "Yuri Kilian"
+  }
+}

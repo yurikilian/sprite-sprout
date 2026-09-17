@@ -27,14 +27,32 @@ Drag & Drop  -->  Auto-Detect  -->  One-Click Clean  -->  Refine  -->  Export
 
 ---
 
+## Go desktop migration
+
+The editor surface remains Svelte 5 + Vite + Canvas 2D. Cleanup and image I/O
+are implemented in the shared Go package under `internal/sprite`; the
+headless `sprout` command and the Wails macOS shell call that same package.
+This keeps pixel results deterministic between desktop and batch processing.
+
+Recipes are versioned JSON (`version`, `grid`, `colors`, `method`, `scale`) and
+never include manual drawing history. The desktop bridge uses generation
+numbers so a slower cleanup response cannot replace a newer user change.
+The Cleanup panel imports and exports these recipes; the Go bridge handles
+native image/recipe dialogs, nearest-neighbour scaling, and Finder file drops.
+The browser path remains available for development and uses the existing
+system clipboard API for image paste/copy.
+
 ## Tech Stack
 
 | Layer | Choice | Why |
 |-------|--------|-----|
-| Language | **TypeScript** | Type safety for complex editor state |
+| Language | **Go 1.27.1 + TypeScript** | Shared headless pipeline with typed editor state |
 | Framework | **Svelte 5** (Runes) | Fine-grained reactivity, tiny bundle, `$effect` for canvas bridge |
 | Rendering | **Canvas 2D** | Direct pixel access, built-in compositing, proven in pixel art editors |
 | Build | **Vite** | Fast dev server, native TS/Svelte support |
+| Desktop | **Wails 2.14.0** | Native macOS window around the existing frontend |
+| CLI | **Go `sprout`** | Headless single-file and batch processing |
+| Styling | **Tailwind CSS 4** + existing component CSS | Blue/white desktop theme without replacing the Svelte surface |
 | Color | **culori** | Perceptually uniform color spaces (OKLAB), tree-shakeable |
 | Quantization | **image-q** | RGBQuant/NeuQuant/Wu, CIEDE2000 distance |
 | GIF Export | **gifenc** | Fastest, lightest, flat-graphics optimized |
@@ -55,6 +73,10 @@ Virtual DOM reconciliation is unnecessary overhead for a canvas-heavy app. Svelt
 ## Architecture
 
 ```
+internal/sprite/                 # Go image pipeline shared by CLI and Wails
+cmd/sprout/                      # Headless inspect/clean/batch CLI
+desktop/                         # Wails macOS shell and Go bindings
+
 src/
   app/                          # Svelte UI components
     Editor.svelte               # Main editor layout

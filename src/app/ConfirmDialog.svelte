@@ -28,10 +28,10 @@
 
 {#if show}
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-  <div class="backdrop" onclick={oncancel}>
+  <div class="backdrop" role="presentation" onclick={oncancel}>
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <div class="dialog" onclick={(e) => e.stopPropagation()}>
-      <h3 class="dialog-title">{title}</h3>
+    <div class="dialog" role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="confirm-dialog-title" onclick={(e) => e.stopPropagation()}>
+      <h3 id="confirm-dialog-title" class="dialog-title">{title}</h3>
       <p class="dialog-message">{message}</p>
       <div class="dialog-actions">
         <button class="btn cancel-btn" onclick={oncancel}>{cancelLabel}</button>
@@ -102,7 +102,7 @@
 
   .confirm-btn {
     background: var(--accent);
-    color: #111;
+    color: var(--accent-ink);
     border-color: var(--accent);
   }
 

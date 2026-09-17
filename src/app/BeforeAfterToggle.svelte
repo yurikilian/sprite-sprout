@@ -111,7 +111,7 @@
     transform: translateX(-50%);
     z-index: 10;
     background: rgba(0, 0, 0, 0.6);
-    color: var(--accent, #4fc3f7);
+    color: var(--accent);
     padding: 2px 10px;
     border-radius: 4px;
     font-size: 11px;
@@ -130,7 +130,7 @@
     position: absolute;
     top: 8px;
     background: rgba(0, 0, 0, 0.6);
-    color: var(--accent, #4fc3f7);
+    color: var(--accent);
     padding: 2px 10px;
     border-radius: 4px;
     font-size: 11px;
@@ -166,7 +166,7 @@
     bottom: 0;
     left: 50%;
     width: 2px;
-    background: var(--accent, #4fc3f7);
+    background: var(--accent);
     transform: translateX(-50%);
     box-shadow: 0 0 6px rgba(79, 195, 247, 0.4);
   }
@@ -176,12 +176,12 @@
     z-index: 1;
     width: 20px;
     height: 36px;
-    background: var(--bg-surface, #253354);
-    border: 1px solid var(--accent, #4fc3f7);
+    background: var(--bg-surface);
+    border: 1px solid var(--accent);
     border-radius: 4px;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--accent, #4fc3f7);
+    color: var(--accent);
   }
 </style>

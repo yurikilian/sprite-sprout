@@ -10,6 +10,23 @@
     QUANTIZE_METHODS,
     type QuantizeMethod,
   } from '../lib/engine/color/quantize-dispatch';
+  import {
+    autoCleanWithWails,
+    fromWailsPixelBuffer,
+    isWailsAvailable,
+    openRecipeWithWails,
+    quantizeWithWails,
+    saveRecipeWithWails,
+    snapToGridWithWails,
+    type WailsColor,
+  } from '../lib/wails';
+  import type { Color } from '../lib/types';
+  import {
+    makeRecipe,
+    parseRecipe,
+    stringifyRecipe,
+    type SpriteRecipe,
+  } from '../lib/recipe';
   import ConfirmDialog from './ConfirmDialog.svelte';
 
   // ---------------------------------------------------------------------------
@@ -21,6 +38,7 @@
   const COLOR_ORIGINAL = 65;
 
   let gridSizeInput: number = $state(1);
+  let gridWasAuto: boolean = $state(true);
   let colorCountInput: number = $state(COLOR_ORIGINAL);
   let colorMethod: QuantizeMethod = $state('median-cut');
   let colorsReduced: boolean = $state(false);
@@ -45,6 +63,12 @@
   // spurious dependencies of the sourceImage-reset $effect below)
   let gridDebounceTimer: ReturnType<typeof setTimeout> | undefined = undefined;
   let colorDebounceTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+  // Every asynchronous native operation captures this generation and the
+  // canvas version it started from. A result from an older image or edit is
+  // discarded instead of replacing newer user work.
+  let operationGeneration = 0;
+  let recipeFileInput: HTMLInputElement | undefined = $state();
+  let recipeNotice: string | null = $state(null);
 
   // ---------------------------------------------------------------------------
   // Derived values
@@ -82,7 +106,9 @@
   // Reset local cleanup state when a new image is loaded (or cleared)
   $effect(() => {
     editorState.sourceImage; // subscribe
+    operationGeneration += 1;
     gridSizeInput = 1;
+    gridWasAuto = true;
     colorCountInput = COLOR_ORIGINAL;
     colorsReduced = false;
     bannerDismissed = false;
@@ -128,39 +154,67 @@
   function scheduleGridApply(): void {
     clearTimeout(gridDebounceTimer);
     gridDebounceTimer = setTimeout(() => {
-      autoApplyGrid();
+      void autoApplyGrid();
     }, 200);
   }
 
-  function autoApplyGrid(): void {
+  async function autoApplyGrid(): Promise<void> {
     if (editorState.hasManualEdits) {
       const prevGrid = lastAppliedGrid;
+      const prevAuto = gridWasAuto;
       confirmMessage =
         'Changing the grid size rebuilds the canvas from the original image. ' +
         'Your manual pixel edits will be lost (you can still undo).';
-      confirmAction = () => doApplyGrid();
-      confirmCancel = () => { gridSizeInput = prevGrid; };
+      confirmAction = () => { void doApplyGrid(); };
+      confirmCancel = () => {
+        gridSizeInput = prevGrid;
+        gridWasAuto = prevAuto;
+      };
       return;
     }
-    doApplyGrid();
+    await doApplyGrid();
   }
 
-  function doApplyGrid(): void {
+  function paletteFromWails(palette: WailsColor[] | undefined): Color[] {
+    return (palette ?? []).map((color) => [color.r, color.g, color.b, color.a]);
+  }
+
+  function operationIsCurrent(generation: number, canvasVersion: number): boolean {
+    return generation === operationGeneration && editorState.canvasVersion === canvasVersion;
+  }
+
+  async function doApplyGrid(): Promise<void> {
     const source = editorState.sourceImage;
     if (!source) return;
 
     const sourceData = new Uint8ClampedArray(source.data);
-    const result = snapToGrid(sourceData, source.width, source.height, gridSizeInput);
+    const requestedVersion = editorState.canvasVersion;
+    const generation = ++operationGeneration;
+    let result: { data: Uint8ClampedArray; width: number; height: number } | null = null;
 
-    editorState.pushHistory('Grid snap');
-    editorState.canvas = {
-      width: result.width,
-      height: result.height,
-      data: result.data,
-    };
+    if (isWailsAvailable()) {
+      try {
+        result = await snapToGridWithWails(
+          sourceData,
+          source.width,
+          source.height,
+          gridSizeInput,
+        );
+      } catch {
+        // Keep browser fallback available if a desktop binding is unavailable
+        // during startup or a native call fails.
+      }
+    }
+    if (!result) {
+      result = snapToGrid(sourceData, source.width, source.height, gridSizeInput);
+    }
+    if (!operationIsCurrent(generation, requestedVersion)) return;
 
-    // Update pre-color snapshot so color reduction re-applies from clean base
-    preColorSnapshot = {
+    let finalData = result.data;
+    let finalWidth = result.width;
+    let finalHeight = result.height;
+    let palette: Color[];
+    const cleanBase: CanvasState = {
       width: result.width,
       height: result.height,
       data: new Uint8ClampedArray(result.data),
@@ -168,23 +222,54 @@
 
     // Re-apply color reduction if it was previously active
     if (colorsReduced) {
-      const quantized = quantize(
-        result.data,
-        result.width,
-        result.height,
-        colorCountInput,
-        colorMethod,
-      );
-      editorState.canvas.data.set(quantized.remappedData);
-      editorState.palette = quantized.palette;
+      let quantized: { data: Uint8ClampedArray; width: number; height: number; palette: Color[] } | null = null;
+      if (isWailsAvailable()) {
+        try {
+          const native = await quantizeWithWails(
+            cleanBase.data,
+            cleanBase.width,
+            cleanBase.height,
+            colorCountInput,
+            colorMethod,
+          );
+          quantized = { ...native, palette: paletteFromWails(native.palette) };
+        } catch {
+          // Browser implementation below remains the compatibility path.
+        }
+      }
+      if (!quantized) {
+        const local = quantize(
+          cleanBase.data,
+          cleanBase.width,
+          cleanBase.height,
+          colorCountInput,
+          colorMethod,
+        );
+        quantized = {
+          data: local.remappedData,
+          width: cleanBase.width,
+          height: cleanBase.height,
+          palette: local.palette,
+        };
+      }
+      if (!operationIsCurrent(generation, requestedVersion)) return;
+      finalData = quantized.data;
+      finalWidth = quantized.width;
+      finalHeight = quantized.height;
+      palette = quantized.palette;
     } else {
-      editorState.palette = extractTopColors(result.data, 64);
+      palette = extractTopColors(result.data, 64);
     }
 
+    editorState.pushHistory('Grid snap');
+    editorState.canvas = { width: finalWidth, height: finalHeight, data: finalData };
+    preColorSnapshot = cleanBase;
+    editorState.palette = palette;
     editorState.bumpVersion();
-    fitAndCenter(result.width, result.height);
+    fitAndCenter(finalWidth, finalHeight);
     cleanupApplied = true;
     lastAppliedGrid = gridSizeInput;
+    gridWasAuto = false;
     editorState.hasManualEdits = false;
   }
 
@@ -195,13 +280,15 @@
   function scheduleColorApply(): void {
     clearTimeout(colorDebounceTimer);
     colorDebounceTimer = setTimeout(() => {
-      autoApplyColors();
+      void autoApplyColors();
     }, 200);
   }
 
-  function autoApplyColors(): void {
+  async function autoApplyColors(): Promise<void> {
     const canvas = editorState.canvas;
     if (!canvas) return;
+    const requestedVersion = editorState.canvasVersion;
+    const generation = ++operationGeneration;
 
     // Save pre-color snapshot on first color reduction
     if (!colorsReduced) {
@@ -214,20 +301,46 @@
 
     // Always quantize from the clean base, not already-quantized data
     const base = preColorSnapshot ?? canvas;
-    const quantized = quantize(
-      base.data,
-      base.width,
-      base.height,
-      colorCountInput,
-      colorMethod,
-    );
+    let remappedData: Uint8ClampedArray;
+    let palette: Color[];
+    let outputWidth = base.width;
+    let outputHeight = base.height;
+    if (isWailsAvailable()) {
+      try {
+        const native = await quantizeWithWails(
+          base.data,
+          base.width,
+          base.height,
+          colorCountInput,
+          colorMethod,
+        );
+        remappedData = native.data;
+        outputWidth = native.width;
+        outputHeight = native.height;
+        palette = paletteFromWails(native.palette);
+      } catch {
+        const local = quantize(base.data, base.width, base.height, colorCountInput, colorMethod);
+        remappedData = local.remappedData;
+        palette = local.palette;
+      }
+    } else {
+      const local = quantize(base.data, base.width, base.height, colorCountInput, colorMethod);
+      remappedData = local.remappedData;
+      palette = local.palette;
+    }
+    if (!operationIsCurrent(generation, requestedVersion)) return;
 
     editorState.pushHistory('Reduce colors');
-    canvas.data.set(quantized.remappedData);
-    editorState.palette = quantized.palette;
+    editorState.canvas = {
+      width: outputWidth,
+      height: outputHeight,
+      data: remappedData,
+    };
+    editorState.palette = palette;
     editorState.bumpVersion();
     colorsReduced = true;
     cleanupApplied = true;
+    gridWasAuto = false;
   }
 
   // ---------------------------------------------------------------------------
@@ -239,21 +352,62 @@
       confirmMessage =
         'Auto-Clean rebuilds the canvas from the original image. ' +
         'Your manual pixel edits will be lost (you can still undo).';
-      confirmAction = () => doAutoClean();
+      confirmAction = () => { void doAutoClean(); };
       return;
     }
     doAutoClean();
   }
 
-  function doAutoClean(): void {
+  async function doAutoClean(): Promise<void> {
     const source = editorState.sourceImage;
     if (!source) return;
 
     const sourceData = new Uint8ClampedArray(source.data);
+    const requestedVersion = editorState.canvasVersion;
+    const generation = ++operationGeneration;
+
+    if (isWailsAvailable()) {
+      try {
+        const native = await autoCleanWithWails(sourceData, source.width, source.height);
+        if (!operationIsCurrent(generation, requestedVersion)) return;
+        const nativeCanvas = {
+          width: native.image.width,
+          height: native.image.height,
+          data: fromWailsPixelBuffer(native.image).data,
+        };
+        const nativeBase = native.baseImage
+          ? {
+              width: native.baseImage.width,
+              height: native.baseImage.height,
+              data: fromWailsPixelBuffer(native.baseImage).data,
+            }
+          : nativeCanvas;
+        editorState.pushHistory('Auto-Clean');
+        editorState.canvas = nativeCanvas;
+        editorState.palette = paletteFromWails(native.palette);
+        editorState.bumpVersion();
+        fitAndCenter(nativeCanvas.width, nativeCanvas.height);
+        gridSizeInput = native.gridSize;
+        gridWasAuto = false;
+        colorMethod = 'octree-refine';
+        colorCountInput = native.outputColors || COLOR_ORIGINAL;
+        colorsReduced = native.outputColors > 0 && native.outputColors < native.originalColors;
+        cleanupApplied = true;
+        bannerDismissed = true;
+        lastAppliedGrid = gridSizeInput;
+        preColorSnapshot = { ...nativeBase, data: new Uint8ClampedArray(nativeBase.data) };
+        editorState.hasManualEdits = false;
+        return;
+      } catch {
+        // Fall through to the local implementation when bindings are unavailable.
+      }
+    }
     const result = autoClean(sourceData, source.width, source.height);
+    if (!operationIsCurrent(generation, requestedVersion)) return;
 
     // Sync UI controls to reflect what auto-clean chose
     gridSizeInput = result.gridSize;
+    gridWasAuto = false;
     colorMethod = 'octree-refine';
     if (result.reduced) {
       colorCountInput = result.reducedColorCount;
@@ -301,12 +455,14 @@
     const val = parseInt(target.value, 10);
     if (!isNaN(val) && val >= 1 && val <= 32) {
       gridSizeInput = val;
+      gridWasAuto = false;
       scheduleGridApply();
     }
   }
 
   function selectCandidate(size: number): void {
     gridSizeInput = size;
+    gridWasAuto = false;
     scheduleGridApply();
   }
 
@@ -330,6 +486,77 @@
     // Only auto-apply if colors have already been reduced
     if (colorsReduced) {
       scheduleColorApply();
+    }
+  }
+
+  function currentRecipe(): SpriteRecipe {
+    return makeRecipe(
+      gridWasAuto ? 0 : gridSizeInput,
+      colorsReduced ? colorCountInput : 0,
+      colorMethod,
+      editorState.exportScale,
+    );
+  }
+
+  async function exportRecipe(): Promise<void> {
+    try {
+      const content = stringifyRecipe(currentRecipe());
+      if (isWailsAvailable()) {
+        try {
+          const saved = await saveRecipeWithWails(content, 'sprite-sprout-recipe.json');
+          recipeNotice = saved ? 'Recipe exported' : 'Recipe export cancelled';
+          return;
+        } catch {
+          // The browser download remains available if the native chooser fails.
+        }
+      }
+      const blob = new Blob([content], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'sprite-sprout-recipe.json';
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 100);
+      recipeNotice = 'Recipe exported';
+    } catch (err) {
+      recipeNotice = err instanceof Error ? err.message : 'Could not export recipe';
+    }
+  }
+
+  async function applyRecipeText(text: string): Promise<void> {
+    const recipe = parseRecipe(text);
+    gridWasAuto = recipe.grid === 0;
+    gridSizeInput = recipe.grid === 0 ? Math.max(1, detectedGrid) : recipe.grid;
+    colorMethod = recipe.method;
+    colorCountInput = recipe.colors > 0 ? recipe.colors : COLOR_ORIGINAL;
+    colorsReduced = recipe.colors > 0;
+    editorState.exportScale = recipe.scale;
+    recipeNotice = 'Recipe imported';
+    scheduleGridApply();
+  }
+
+  async function importRecipe(): Promise<void> {
+    if (isWailsAvailable()) {
+      try {
+        const content = await openRecipeWithWails();
+        if (content !== null) await applyRecipeText(content);
+      } catch (err) {
+        recipeNotice = err instanceof Error ? err.message : 'Invalid recipe';
+      }
+      return;
+    }
+    recipeFileInput?.click();
+  }
+
+  async function handleRecipeFile(e: Event): Promise<void> {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    try {
+      await applyRecipeText(await file.text());
+    } catch (err) {
+      recipeNotice = err instanceof Error ? err.message : 'Invalid recipe';
     }
   }
 </script>
@@ -476,6 +703,26 @@
       {/if}
 
     </div>
+
+    <div class="divider"></div>
+
+    <div class="section recipe-section">
+      <span class="section-label">Recipe</span>
+      <div class="button-row">
+        <button class="action-btn" onclick={exportRecipe}>Export JSON</button>
+        <button class="action-btn" onclick={() => void importRecipe()}>Import JSON</button>
+      </div>
+      <input
+        bind:this={recipeFileInput}
+        class="recipe-input"
+        type="file"
+        accept="application/json,.json"
+        onchange={handleRecipeFile}
+      />
+      {#if recipeNotice}
+        <span class="recipe-notice" role="status">{recipeNotice}</span>
+      {/if}
+    </div>
   {/if}
 </div>
 
@@ -567,12 +814,12 @@
 
   .chip:hover {
     background: var(--accent);
-    color: #111;
+    color: var(--accent-ink);
   }
 
   .chip.active {
     background: var(--accent);
-    color: #111;
+    color: var(--accent-ink);
     border-color: var(--accent);
   }
 
@@ -588,12 +835,12 @@
 
   .action-btn:hover {
     background: var(--accent);
-    color: #111;
+    color: var(--accent-ink);
   }
 
   .action-btn.accent {
     background: var(--accent);
-    color: #111;
+    color: var(--accent-ink);
     border-color: var(--accent);
   }
 
@@ -655,5 +902,14 @@
   .method-select:focus {
     outline: 1px solid var(--accent);
     outline-offset: -1px;
+  }
+
+  .recipe-input {
+    display: none;
+  }
+
+  .recipe-notice {
+    color: var(--accent);
+    font-size: 10px;
   }
 </style>

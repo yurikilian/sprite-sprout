@@ -1,11 +1,23 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { editorState } from '../lib/state.svelte';
   import {
     loadImageFromFile,
     loadImageFromClipboard,
     analyzeImage,
   } from '../lib/engine/io/import';
+  import { detectGridSize } from '../lib/engine/grid/detect';
   import { calculateFitZoom } from '../lib/engine/canvas/renderer';
+  import {
+    analyzeWithWails,
+    isWailsAvailable,
+    onWailsFileError,
+    onWailsFileOpen,
+    openImageWithWails,
+    toImageData,
+    type WailsAnalysis,
+    type WailsNativeImage,
+  } from '../lib/wails';
 
   // ---- Local reactive state ---------------------------------------------------
 
@@ -15,6 +27,67 @@
 
   /** Hidden file input element */
   let fileInput: HTMLInputElement | undefined = $state();
+
+  onMount(() => {
+    const stopOpen = onWailsFileOpen((nativeImage) => {
+      void applyNativeImage(nativeImage);
+    });
+    const stopError = onWailsFileError((message) => {
+      isLoading = false;
+      errorMessage = message;
+    });
+    return () => {
+      stopOpen();
+      stopError();
+    };
+  });
+
+  async function applyImage(imageData: ImageData, nativeAnalysis?: WailsAnalysis): Promise<void> {
+    // Keep the source immutable and give drawing tools their own working copy.
+    editorState.sourceImage = imageData;
+    editorState.canvas = {
+      width: imageData.width,
+      height: imageData.height,
+      data: new Uint8ClampedArray(imageData.data),
+    };
+
+    let analysis: WailsAnalysis | null = nativeAnalysis ?? null;
+    if (!analysis && isWailsAvailable()) {
+      try {
+        analysis = await analyzeWithWails(imageData.data, imageData.width, imageData.height);
+      } catch {
+        // The local analyzer keeps browser mode and early Wails startup usable.
+      }
+    }
+    editorState.analysis = analysis ?? analyzeImage(imageData);
+    editorState.detectedGridSize =
+      analysis && 'detectedGrid' in analysis
+        ? analysis.detectedGrid
+        : detectGridSize(imageData.data, imageData.width, imageData.height).gridSize;
+    editorState.bumpVersion();
+
+    // Center the imported image in the viewport.
+    const vw = editorState.viewportW;
+    const vh = editorState.viewportH;
+    if (vw > 0 && vh > 0) {
+      const z = calculateFitZoom(imageData.width, imageData.height, vw, vh);
+      editorState.zoom = z;
+      editorState.panX = (vw - imageData.width * z) / 2;
+      editorState.panY = (vh - imageData.height * z) / 2;
+    }
+  }
+
+  async function applyNativeImage(nativeImage: WailsNativeImage): Promise<void> {
+    isLoading = true;
+    errorMessage = null;
+    try {
+      await applyImage(toImageData(nativeImage.image), nativeImage.analysis);
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to load image';
+    } finally {
+      isLoading = false;
+    }
+  }
 
   // ---- Import handler ---------------------------------------------------------
 
@@ -30,31 +103,7 @@
     try {
       const imageData = await loadImageFromFile(file);
 
-      // Store the original source image
-      editorState.sourceImage = imageData;
-
-      // Create a working canvas copy
-      editorState.canvas = {
-        width: imageData.width,
-        height: imageData.height,
-        data: new Uint8ClampedArray(imageData.data),
-      };
-
-      // Analyze the image
-      editorState.analysis = analyzeImage(imageData);
-
-      // Signal that the canvas has new data
-      editorState.bumpVersion();
-
-      // Center the imported image in the viewport
-      const vw = editorState.viewportW;
-      const vh = editorState.viewportH;
-      if (vw > 0 && vh > 0) {
-        const z = calculateFitZoom(imageData.width, imageData.height, vw, vh);
-        editorState.zoom = z;
-        editorState.panX = (vw - imageData.width * z) / 2;
-        editorState.panY = (vh - imageData.height * z) / 2;
-      }
+      await applyImage(imageData);
     } catch (err) {
       errorMessage =
         err instanceof Error ? err.message : 'Failed to load image';
@@ -87,7 +136,22 @@
 
   // ---- File picker ------------------------------------------------------------
 
-  function openFilePicker(): void {
+  async function openFilePicker(): Promise<void> {
+    if (isWailsAvailable()) {
+      isLoading = true;
+      errorMessage = null;
+      try {
+        // A cancelled native chooser returns null and should remain cancelled,
+        // rather than opening a second browser picker behind the Wails window.
+        const nativeImage = await openImageWithWails();
+        if (nativeImage) await applyImage(nativeImage.image, nativeImage.analysis);
+      } catch (err) {
+        errorMessage = err instanceof Error ? err.message : 'Failed to open image';
+      } finally {
+        isLoading = false;
+      }
+      return;
+    }
     fileInput?.click();
   }
 
@@ -142,25 +206,7 @@
       errorMessage = null;
 
       try {
-        editorState.sourceImage = imageData;
-
-        editorState.canvas = {
-          width: imageData.width,
-          height: imageData.height,
-          data: new Uint8ClampedArray(imageData.data),
-        };
-
-        editorState.analysis = analyzeImage(imageData);
-        editorState.bumpVersion();
-
-        const vw = editorState.viewportW;
-        const vh = editorState.viewportH;
-        if (vw > 0 && vh > 0) {
-          const z = calculateFitZoom(imageData.width, imageData.height, vw, vh);
-          editorState.zoom = z;
-          editorState.panX = (vw - imageData.width * z) / 2;
-          editorState.panY = (vh - imageData.height * z) / 2;
-        }
+        await applyImage(imageData);
       } catch (err) {
         errorMessage =
           err instanceof Error ? err.message : 'Failed to load image';
@@ -175,6 +221,7 @@
 
 <div
   class="drop-zone"
+  style="--wails-drop-target: drop"
   class:drag-over={isDragOver}
   class:loading={isLoading}
   role="button"
@@ -187,7 +234,7 @@
   onkeydown={(e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      openFilePicker();
+      void openFilePicker();
     }
   }}
 >
@@ -235,7 +282,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 2px dashed var(--border-color, #555);
+    border: 2px dashed var(--border-color);
     border-radius: 8px;
     margin: 16px;
     cursor: pointer;
@@ -246,14 +293,14 @@
 
   .drop-zone:hover,
   .drop-zone:focus-visible {
-    border-color: var(--accent-color, #7c8aff);
-    background-color: rgba(124, 138, 255, 0.05);
+    border-color: var(--accent);
+    background-color: rgba(37, 99, 235, 0.05);
     outline: none;
   }
 
   .drop-zone.drag-over {
-    border-color: var(--accent-color, #7c8aff);
-    background-color: rgba(124, 138, 255, 0.1);
+    border-color: var(--accent);
+    background-color: rgba(37, 99, 235, 0.1);
     border-style: solid;
   }
 
@@ -268,7 +315,7 @@
 
   .drop-content {
     text-align: center;
-    color: var(--text-secondary, #999);
+    color: var(--text-secondary);
   }
 
   .label {
@@ -282,7 +329,7 @@
   }
 
   .error {
-    color: var(--error-color, #ff5555);
+    color: var(--danger);
     font-size: 12px;
     margin-top: 8px;
   }
@@ -304,8 +351,8 @@
   .demo-btn {
     padding: 6px 12px;
     font-size: 12px;
-    background: var(--accent, #4fc3f7);
-    color: #111;
+    background: var(--accent);
+    color: var(--accent-ink);
     border: none;
     border-radius: 4px;
     cursor: pointer;
@@ -314,8 +361,8 @@
   }
 
   .demo-btn:hover {
-    background: var(--accent-hover, #81d4fa);
-    color: #111;
+    background: var(--accent-hover);
+    color: var(--accent-ink);
   }
 
   .demo-btn:disabled {

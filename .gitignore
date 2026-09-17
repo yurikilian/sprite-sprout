@@ -3,3 +3,9 @@ dist/
 .vite/
 *.local
 .DS_Store
+desktop/build/bin/
+/sprout
+wailsjs/
+!desktop/frontend/dist/
+desktop/frontend/dist/*
+!desktop/frontend/dist/.gitkeep
