@@ -9,6 +9,7 @@
     nextZoomLevel,
     prevZoomLevel,
     clampPan,
+    ZOOM_LEVELS,
   } from '../lib/engine/canvas/renderer';
   import {
     pencilStroke,
@@ -61,6 +62,12 @@
   /** Secondary offscreen canvas for source image in before/after */
   let srcOffscreen: OffscreenCanvas | undefined;
   let srcOffCtx: OffscreenCanvasRenderingContext2D | undefined | null;
+
+  /** Accumulated wheel movement used to avoid hypersensitive trackpad zoom. */
+  const WHEEL_ZOOM_THRESHOLD = 100;
+  let wheelAccumulated = 0;
+  let wheelDirection = 0;
+  let wheelResetTimer: ReturnType<typeof setTimeout> | undefined;
 
   // ---- Derived values -------------------------------------------------------
 
@@ -376,14 +383,8 @@
 
   // ---- Zoom -----------------------------------------------------------------
 
-  function handleWheel(e: WheelEvent): void {
-    e.preventDefault();
-
-    if (!canvas || !displayCanvas) return;
-
-    const rect = displayCanvas.getBoundingClientRect();
-    const cursorScreenX = e.clientX - rect.left;
-    const cursorScreenY = e.clientY - rect.top;
+  function setZoomAt(cursorScreenX: number, cursorScreenY: number, newZoom: number): void {
+    if (!canvas) return;
 
     // Pixel under cursor before zoom
     const pixBefore = {
@@ -391,15 +392,9 @@
       y: (cursorScreenY - panY) / zoom,
     };
 
-    const newZoom =
-      e.deltaY < 0
-        ? nextZoomLevel(zoom)
-        : prevZoomLevel(zoom);
-
     // Adjust pan to keep the pixel under the cursor in the same screen position
-    let newPanX = cursorScreenX - pixBefore.x * newZoom;
-    let newPanY = cursorScreenY - pixBefore.y * newZoom;
-
+    const newPanX = cursorScreenX - pixBefore.x * newZoom;
+    const newPanY = cursorScreenY - pixBefore.y * newZoom;
     const clamped = clampPan(
       newPanX,
       newPanY,
@@ -413,6 +408,51 @@
     editorState.zoom = newZoom;
     editorState.panX = clamped.panX;
     editorState.panY = clamped.panY;
+  }
+
+  function changeZoom(direction: 1 | -1, anchorX = viewportW / 2, anchorY = viewportH / 2): void {
+    if (!canvas || !displayCanvas) return;
+    const newZoom = direction > 0 ? nextZoomLevel(zoom) : prevZoomLevel(zoom);
+    if (newZoom === zoom) return;
+    setZoomAt(anchorX, anchorY, newZoom);
+  }
+
+  function formatZoom(value: number): string {
+    return value < 1 ? `${Math.round(value * 100)}%` : `${value}×`;
+  }
+
+  function handleWheel(e: WheelEvent): void {
+    e.preventDefault();
+
+    if (!canvas || !displayCanvas) return;
+
+    // Trackpad events are often a stream of tiny deltas. Accumulate them and
+    // change one discrete level only after a deliberate amount of movement.
+    const rawDelta = e.deltaMode === 1
+      ? e.deltaY * 16
+      : e.deltaMode === 2
+        ? e.deltaY * viewportH
+        : e.deltaY;
+    const direction = Math.sign(rawDelta);
+    if (direction === 0) return;
+    if (direction !== wheelDirection) {
+      wheelDirection = direction;
+      wheelAccumulated = 0;
+    }
+    wheelAccumulated += Math.min(Math.abs(rawDelta), WHEEL_ZOOM_THRESHOLD) * direction;
+    clearTimeout(wheelResetTimer);
+    wheelResetTimer = setTimeout(() => {
+      wheelAccumulated = 0;
+      wheelDirection = 0;
+    }, 160);
+
+    if (Math.abs(wheelAccumulated) < WHEEL_ZOOM_THRESHOLD) return;
+    wheelAccumulated = 0;
+
+    const rect = displayCanvas.getBoundingClientRect();
+    const cursorScreenX = e.clientX - rect.left;
+    const cursorScreenY = e.clientY - rect.top;
+    changeZoom(direction < 0 ? 1 : -1, cursorScreenX, cursorScreenY);
   }
 
   // ---- Pan ------------------------------------------------------------------
@@ -624,23 +664,47 @@
 
 <div
   class="canvas-container"
-  bind:this={container}
   role="application"
   aria-label="Pixel art canvas"
 >
   {#if canvas}
-    <canvas
-      bind:this={displayCanvas}
-      class="display-canvas"
-      class:panning={isPanning || spaceHeld}
-      style:cursor={isPanning || spaceHeld ? undefined : toolCursor}
-      onwheel={handleWheel}
-      onpointerdown={handlePointerDown}
-      onpointermove={handlePointerMove}
-      onpointerup={handlePointerUp}
-      onpointerleave={handlePointerLeave}
-    ></canvas>
-    <BeforeAfterToggle />
+    <div class="canvas-stage" bind:this={container}>
+      <canvas
+        bind:this={displayCanvas}
+        class="display-canvas"
+        class:panning={isPanning || spaceHeld}
+        style:cursor={isPanning || spaceHeld ? undefined : toolCursor}
+        onwheel={handleWheel}
+        onpointerdown={handlePointerDown}
+        onpointermove={handlePointerMove}
+        onpointerup={handlePointerUp}
+        onpointerleave={handlePointerLeave}
+      ></canvas>
+      <BeforeAfterToggle />
+      <div class="zoom-controls" role="group" aria-label="Zoom controls">
+        <button
+          type="button"
+          class="zoom-btn"
+          aria-label="Zoom out"
+          title="Zoom out"
+          disabled={zoom <= ZOOM_LEVELS[0]}
+          onclick={() => changeZoom(-1)}
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">remove</span>
+        </button>
+        <output class="zoom-value" aria-live="polite">{formatZoom(zoom)}</output>
+        <button
+          type="button"
+          class="zoom-btn"
+          aria-label="Zoom in"
+          title="Zoom in"
+          disabled={zoom >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1]}
+          onclick={() => changeZoom(1)}
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">add</span>
+        </button>
+      </div>
+    </div>
   {:else}
     <ImportDropZone />
   {/if}
@@ -652,6 +716,14 @@
     height: 100%;
     overflow: hidden;
     position: relative;
+  }
+
+  .canvas-stage {
+    position: absolute;
+    inset: 24px;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
   }
 
   .display-canvas {
@@ -666,6 +738,58 @@
 
   .display-canvas.panning {
     cursor: grab;
+  }
+
+  .zoom-controls {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    z-index: 20;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(16, 42, 67, 0.18);
+  }
+
+  .zoom-btn {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+  }
+
+  .zoom-btn:hover:not(:disabled) {
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+
+  .zoom-btn:disabled {
+    opacity: 0.45;
+  }
+
+  .zoom-value {
+    min-width: 46px;
+    padding: 0 4px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+  }
+
+  @media (max-width: 640px) {
+    .canvas-stage {
+      inset: 12px;
+    }
   }
 
 </style>

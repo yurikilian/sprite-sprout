@@ -7,7 +7,7 @@
     analyzeImage,
   } from '../lib/engine/io/import';
   import { detectGridSize } from '../lib/engine/grid/detect';
-  import { calculateFitZoom } from '../lib/engine/canvas/renderer';
+  import { calculateFitZoom, CANVAS_GUTTER } from '../lib/engine/canvas/renderer';
   import {
     analyzeWithWails,
     isWailsAvailable,
@@ -68,21 +68,19 @@
 
     // Center the imported image in the viewport. The ResizeObserver may not
     // have delivered its first measurement while the drop zone is still
-    // mounted, so read the container as a fallback instead of leaving a
-    // large sheet at the 1x zoom default.
+    // mounted, so read the outer container and account for the working-area
+    // gutter instead of leaving a large sheet at the 1x zoom default.
     let vw = editorState.viewportW;
     let vh = editorState.viewportH;
-    if (vw <= 0 || vh <= 0) {
-      const viewport = document.querySelector<HTMLElement>(
-        '[role="application"][aria-label="Pixel art canvas"]',
-      );
-      if (viewport) {
-        const rect = viewport.getBoundingClientRect();
-        vw = rect.width;
-        vh = rect.height;
-        editorState.viewportW = vw;
-        editorState.viewportH = vh;
-      }
+    const viewport = document.querySelector<HTMLElement>(
+      '[role="application"][aria-label="Pixel art canvas"]',
+    );
+    if (viewport) {
+      const rect = viewport.getBoundingClientRect();
+      vw = Math.max(0, rect.width - CANVAS_GUTTER * 2);
+      vh = Math.max(0, rect.height - CANVAS_GUTTER * 2);
+      editorState.viewportW = vw;
+      editorState.viewportH = vh;
     }
     if (vw > 0 && vh > 0) {
       const z = calculateFitZoom(imageData.width, imageData.height, vw, vh);

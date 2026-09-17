@@ -24,7 +24,7 @@
 - **DPR-aware**: canvas backing store scales by `devicePixelRatio` for HiDPI displays
 - **rAF coalescing**: dirty flag prevents multiple renders per frame; single `requestAnimationFrame` loop
 - **OffscreenCanvas** for native-resolution staging — `putImageData` at native size, then `drawImage` scaled by zoom with `imageSmoothingEnabled = false`
-- **Discrete zoom levels** `[1, 2, 4, 6, 8, 12, 16, 24, 32]` — no continuous zoom, prevents sub-pixel rendering artifacts
+- **Discrete zoom levels** `[0.0625, 0.125, 0.25, 0.5, 1, 2, 4, 6, 8, 12, 16, 24, 32]` — fractional levels keep large sheets in view while integer levels preserve pixel-perfect editing
 - **Zoom toward cursor**: recalculate pan offset so the pixel under the pointer stays fixed on screen
 - **Pan clamping**: at least 25% of canvas visible on each axis — prevents losing the canvas off-screen
 

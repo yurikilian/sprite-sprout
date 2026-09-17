@@ -11,6 +11,9 @@
  */
 export const ZOOM_LEVELS = [0.0625, 0.125, 0.25, 0.5, 1, 2, 4, 6, 8, 12, 16, 24, 32] as const;
 
+/** Empty space around the working canvas inside the editor viewport. */
+export const CANVAS_GUTTER = 24;
+
 /**
  * Convert screen (mouse / pointer) coordinates to pixel coordinates on the
  * sprite canvas, accounting for zoom, pan, and the position of the canvas
