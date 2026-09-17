@@ -418,7 +418,11 @@
   }
 
   function formatZoom(value: number): string {
-    return value < 1 ? `${Math.round(value * 100)}%` : `${value}×`;
+    if (value < 1) {
+      const percent = (value * 100).toFixed(2).replace(/\.?(0+)$/, '');
+      return `${percent}%`;
+    }
+    return `${value}×`;
   }
 
   function handleWheel(e: WheelEvent): void {
